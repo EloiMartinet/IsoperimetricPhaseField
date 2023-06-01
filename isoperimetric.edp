@@ -1,0 +1,64 @@
+load "medit"
+include "inout.idp"
+
+int n = 100;            // Number of triangles on the side of the mesh 
+int maxIter = 10000;     // Maximal number of iterations
+real eps = 0.005;        // The epsilon in the Modica-Mortola functionnal 
+real step = 0.1/eps;    // The optimization step
+real obj = 1e10;        // The objective function
+real nextObj = 1e10;    // The next objective function
+real lambda = -0.8;       // The Lagrange multiplier for the volume
+
+mesh Th = square(n,n);  // Create the mesh
+
+fespace Vh(Th, P1); // Create the finite element space
+Vh u, nextu;   // Phase field
+Vh gradPer, gradVol;    // Stores the gradients at each iteration
+
+// Init u at random (put 0 on the boundary)
+for(int i=0; i<u[].n; i++){
+    u[][i] = randreal1();
+}
+real padding = 0.001;
+func borderConstraint = (x>padding) && (x<1-padding) && (y>padding) && (y<1-padding);
+u = u*borderConstraint;
+
+obj = int2d(Th)(eps*(dx(u)*dx(u)+dy(u)*dy(u)) + 1./eps*u*u*(1-u)*(1-u) + lambda*u);
+
+// Optimization loop
+for(int k=0; k<maxIter; k++){
+    // If we are near the minimum, decrease eps (justified by Gamma-convergence)
+    if(step <= 1e-5){
+        eps = 0.2*eps;
+        step = 0.1/eps;
+        obj = 1e10;
+    }
+
+    // Compute the gradient, dof by dof
+    varf dPer(v,w) = int2d(Th)( 2*eps*(dx(u)*dx(w)+dy(u)*dy(w)) + 2/eps*u*(1-u)*(1-2*u)*w + lambda*w)+on(1,2,3,4,v=0);
+    gradPer[] = dPer(0, Vh);
+
+    // Update u 
+    nextu = u - step*gradPer;
+
+    // Compute the objective of the new phase field function
+    nextObj = int2d(Th)(eps*(dx(nextu)*dx(nextu)+dy(nextu)*dy(nextu)) + 1./eps*nextu*nextu*(1-nextu)*(1-nextu)+ lambda*nextu);
+
+    if(nextObj < obj){
+        step = 1.1*step;
+        u = nextu;
+        obj = nextObj;
+    }else{
+        step = 0.6*step;
+    }
+    
+
+
+    // Save u
+    printsol("res/step." + k + ".sol",u[]);
+    savemesh(Th, "res/step." + k + ".mesh");
+
+    cout << "Iteration " + k << endl;
+    //cout << "\t Volume = " << int2d(Th)(u) << endl;
+    cout << "\t Step = " << step << endl;
+}
